@@ -19,31 +19,57 @@ stock_symbol = list(stock_dict.keys())
 
 st.markdown("# 📈 SET50 Stock Price Forecasting")
 selected_stock = st.selectbox("Select stock", stock_symbol)
-st.write("")
-
-with st.container():
-    company = re.sub("(^|\s)(\S)", convert_into_uppercase, (stock_dict[selected_stock]['Company']).lower())
-    st.markdown(f"## {selected_stock}")
-    st.markdown(f"### {company}")
-
+if st.button("Search"):
     data_load_state = st.text("Load data...")
     data = load_data(ticker=f"{selected_stock}.BK")
     data_load_state.text("Loading data...done!")
 
-    fig = go.Figure(data=go.Ohlc(x=data["Date"],
-                    open=data["Open"],
-                    high=data["High"],
-                    low=data["Low"],
-                    close=data["Close"]))
-    st.plotly_chart(fig)
+    with st.container():
+        company = re.sub("(^|\s)(\S)", convert_into_uppercase, (stock_dict[selected_stock]['Company']).lower())
+        st.markdown(f"## {selected_stock}")
+        st.markdown(f"### {company}")
 
-    # TODAY = date.today().strftime("%d %B %Y")
-    # st.markdown(f"### {TODAY}")
-    # # data_TODAY = data[data["Date"] == date.today().strftime("%Y-%m-%d")]
-    # data_TODAY = data[data["Date"] == "2023-01-06"]
-    # st.write(data)
-    date_ = data["Date"].iloc[-1]
-    st.write(date_)
+        fig = go.Figure(data=go.Ohlc(x=data["Date"],
+                        open=data["Open"],
+                        high=data["High"],
+                        low=data["Low"],
+                        close=data["Close"]))
+        st.plotly_chart(fig)
+
+        # TODAY = date.today().strftime("%d %B %Y")
+        # st.markdown(f"### {TODAY}")
+        # # data_TODAY = data[data["Date"] == date.today().strftime("%Y-%m-%d")]
+        # data_TODAY = data[data["Date"] == "2023-01-06"]
+        # st.write(data)
+        date_ = (data["Date"].iloc[-1]).strftime("%d %B %Y")
+        st.markdown(f"### {date_}")
+        data_ = (data.iloc[-2:])
+
+        col_stock = st.columns(3)
+        with col_stock[0]:
+            st.metric(label="Open", value=f"{(data['Open'].iloc[-1])} THB")
+            st.metric(label="Close", value=f"{(data['Close'].iloc[-1])} THB")
+        
+        with col_stock [1]:
+            st.metric(label="High", value=f"{(data['High'].iloc[-1])} THB")
+            change = data_["Close"].iloc[-1] - data_["Close"].iloc[-2]
+            if change > 0:
+                st.metric(label="Change", value=f"↑ {round(change, 2)} THB")
+            elif change < 0:
+                st.metric(label="Change", value=f"↓ {round(change, 2)} THB")
+            else:
+                st.metric(label="Change", value=f"{round(change, 2)} THB")
+
+
+        with col_stock [2]:
+            st.metric(label="Low", value=f"{(data['Low'].iloc[-1])} THB")
+            percent_change = (data_["Close"].iloc[-1] - data_["Close"].iloc[-2])/data_["Close"].iloc[-2] * 100
+            if change > 0:
+                st.metric(label="Change", value=f"↑ {round(percent_change, 2)}")
+            elif change < 0:
+                st.metric(label="Change", value=f"↓ {round(percent_change, 2)}")
+            else:
+                st.metric(label="Change", value=f"{round(percent_change, 2)}")
 
 
 
