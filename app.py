@@ -5,6 +5,11 @@ from plotly import graph_objs as go
 import pickle
 import re
 from dateutil.relativedelta import relativedelta
+import numpy as np
+from sklearn.preprocessing import MinMaxScaler
+import tensorflow as tf
+import random
+import matplotlib.pyplot as plt
 
 def convert_into_uppercase(a):
     return a.group(1) + a.group(2).upper()
@@ -111,7 +116,138 @@ with col_train[1]:
     EPOCH = st.number_input("EPOCH", min_value=1, value=100)
     BATCH_SIZE = st.number_input("BATCH SIZE", min_value=32, max_value=300, value=256)
 
-model_name = f"{selected_model}-{structure}-EPOCH{EPOCH}-BATCH_SIZE{BATCH_SIZE}-WINDOW{WINDOWS}-HORIZON{HORIZONS}-test_split{test_split}"
+structure_string = [str(i) for i in structure]
+model_name = f"{selected_stock}-{selected_model}-{'_'.join(structure_string)}-EPOCH{EPOCH}-BATCH_SIZE{BATCH_SIZE}-WINDOW{WINDOWS}-HORIZON{HORIZONS}-test_split{str(test_split).replace('.', '')}"
 st.write(model_name)
 
-# def dense_model(structure, data, model_name, epoch, batch_size, save_path):
+def get_labelled_windows(x, horizon):
+    return x[:, :-horizon], x[:, -horizon:]
+
+def make_windows(x, window_size, horizon):
+    window_step = np.expand_dims(np.arange(window_size + horizon), axis=0)
+    window_indexes = window_step + np.expand_dims(np.arange(len(x) - (window_size + horizon - 1)), axis=0).T
+    windowed_array = x[window_indexes]
+    windows, labels = get_labelled_windows(windowed_array, horizon=horizon)
+
+    return windows, labels
+
+def make_train_test_splits(windows, labels, test_split=0.2):
+    split_size = int(len(windows) * (1 - test_split))
+    train_windows = windows[:split_size]
+    train_labels = labels[:split_size]
+    test_windows = windows[split_size:]
+    test_labels = labels[split_size:]
+    return train_windows, train_labels, test_windows, test_labels
+
+def normalization(train, test):
+    scaler = MinMaxScaler(feature_range=(0, 1))
+    scaler = scaler.fit(train)
+    
+    train_scaled = scaler.transform(train)
+    test_scaled = scaler.transform(test)
+
+    return train_scaled, test_scaled, scaler
+
+stock_prices = data["Close"].to_numpy()
+price_windows, price_labels = make_windows(stock_prices, WINDOWS, HORIZONS)
+train_windows, train_labels, test_windows, test_labels = make_train_test_splits(price_windows, price_labels)
+train_windows_scaled, test_windows_scaled, scaler_windows = normalization(train_windows, test_windows)
+train_labels_scaled, test_labels_scaled, scaler_labels = normalization(train_labels, test_labels)
+data_train_test = {"train": {"windows": train_windows_scaled.astype(np.float32),
+                             "labels": train_labels_scaled.astype(np.float32)},
+                   "test": {"windows": test_windows_scaled.astype(np.float32),
+                            "labels": test_labels_scaled.astype(np.float32)}}
+
+def create_model_checkpoint(save_path):
+    return tf.keras.callbacks.ModelCheckpoint(filepath=f"{save_path}",
+                                              monitor="val_loss",
+                                              verbose=1,
+                                              save_best_only=True)
+
+def dense_model(structure, data, model_name, epoch, batch_size, save_path):
+    tf.random.set_seed(42)
+    np.random.seed(42)
+    random.seed(42)
+
+    X_train = data["train"]["windows"]
+    y_train = data["train"]["labels"]
+    X_test = data["test"]["windows"]
+    y_test = data["test"]["labels"]
+
+    input = tf.keras.layers.Input(shape=(X_train.shape[1],))
+
+    for i in range(len(structure)):
+        if i == 0:
+            x = tf.keras.layers.Dense(structure[i], activation="relu")(input)
+        else:
+            x = tf.keras.layers.Dense(structure[i], activation="relu")(x)
+
+    output = tf.keras.layers.Dense(y_train.shape[1])(x)
+    model = tf.keras.Model(inputs=input,
+                           outputs=output,
+                           name=model_name)
+
+    model.compile(loss="mae",
+                  optimizer=tf.keras.optimizers.Adam(),
+                  metrics=["mae", "mse"])
+    
+    history = model.fit(x=X_train,
+                        y=y_train,
+                        epochs=epoch,
+                        batch_size=batch_size,
+                        validation_data=(X_test, y_test),
+                        callbacks=[create_model_checkpoint(save_path=save_path)])
+
+    plt.figure(figsize=(10,7))
+    epoch_plot = np.arange(1, epoch+1)
+    loss = np.array(history.history["loss"])
+    val_loss = np.array(history.history["val_loss"])
+    plt.plot(epoch_plot, loss, label="Traing")
+    plt.plot(epoch_plot, val_loss, label="Loss")
+    plt.ylabel("MAE", fontsize=14)
+    plt.xlabel("Epoch", fontsize=14)
+    plt.legend(fontsize=14)
+    plt.grid(True);
+    
+    model = tf.keras.models.load_model(save_path)
+
+    preds_train = model.predict(X_train)
+    preds_test = model.predict(X_test)
+
+    mse_train = mse(model, y_train, preds_train)
+    mse_test = mse(model, y_test, preds_test)
+
+    mae_train = mae(model, y_train, preds_train)
+    mae_test = mae(model, y_test, preds_test)
+
+    print(f"MSE_train: {mse_train}")
+    print(f"MSE_test: {mse_test}")
+    print(f"MAE_train: {mae_train}")
+    print(f"MAE_test: {mae_test}")
+
+    MSE = {"train": mse_train,
+           "test": mse_test}
+
+    MAE = {"train": mae_train,
+           "test": mae_test}
+
+    plt.figure(figsize=(10,7))
+    plt.plot(y_train[:,0], label="Training")
+    plt.plot(preds_train[:,0], label="Prediction")
+    plt.ylabel("Stock Price", fontsize=14)
+    plt.title("Training")
+    plt.legend(fontsize=14)
+    plt.grid(True);
+
+    plt.figure(figsize=(10,7))
+    plt.plot(y_test[:,0], label="Test")
+    plt.plot(preds_test[:,0], label="Prediction")
+    plt.ylabel("Stock Price", fontsize=14)
+    plt.title("Test")
+    plt.legend(fontsize=14)
+    plt.grid(True);
+  
+    # return model, MAE, MSE
+
+SAVE_PATH = f"model_experiments/model"
+dense_model(structure=structure, data=data_train_test, model_name=model_name, epoch=EPOCH, batch_size=BATCH_SIZE, save_path=SAVE_PATH)
