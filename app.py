@@ -15,6 +15,7 @@ from datetime import datetime
 from zoneinfo import ZoneInfo
 import shutil
 import pandas as pd
+import matplotlib.pyplot as plt
 
 def convert_into_uppercase(a):
     return a.group(1) + a.group(2).upper()
@@ -278,8 +279,6 @@ if st.button("Train Model"):
 
     if os.path.isfile(f"model/{selected_stock}/information.pkl"):
         inform = pickle.load(open(f"model/{selected_stock}/information.pkl", "rb"))
-        st.write("Have")
-        st.write(inform)
     else:
         inform = {}
 
@@ -348,4 +347,37 @@ if os.path.isfile(f"{path}/{selected_stock}/information.pkl"):
 
     df_compare = pd.DataFrame(dict_compare)
 
-    st.write(df_compare)
+    displayed_model = st.multiselect("Select model to compare prediction performance",
+                                    df_compare["Model"],
+                                    df_compare["Model"])
+    df_display = df_compare[df_compare["Model"].isin(displayed_model)]
+    st.write(df_display)
+
+    st.markdown("#### Learning Curves")
+    col = st.columns([1,5])
+    with col[0]:
+        train_plot = st.checkbox("Training", value=True)
+    with col[1]:
+        val_plot = st.checkbox("Validation", value=True)
+
+    fig, ax = plt.subplots()
+    fig.patch.set_alpha(0)
+
+    for label, row in df_display.iterrows():
+        train_loss = informs[f"{row['Date']}_{row['Time']}"]["train_loss"]
+        val_loss = informs[f"{row['Date']}_{row['Time']}"]["val_loss"]
+        epoch = np.arange(1, len(train_loss)+1)
+        if train_plot:
+            ax.plot(epoch, train_loss, label=f"Training Set_Model {row['Model']}")
+        if val_plot:
+            ax.plot(epoch, val_loss, label=f"Validation Set_Model {row['Model']}")
+    
+    ax.patch.set_alpha(0)
+    ax.tick_params(axis="x", colors="white")
+    ax.tick_params(axis="y", colors="white")
+    ax.set_ylabel("Mean Absolute Error (MAE)", color="white")
+    ax.set_xlabel("Epoch", color="white")
+    ax.legend()
+    ax.grid(color="grey")
+    # ax.set_title("Learning Curves", color="white")
+    st.pyplot(fig)
