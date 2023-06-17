@@ -10,11 +10,16 @@ from sklearn.preprocessing import MinMaxScaler
 import tensorflow as tf
 import random
 import matplotlib.pyplot as plt
+import os
+from datetime import datetime
+from zoneinfo import ZoneInfo
+import shutil
+import pandas as pd
 
 def convert_into_uppercase(a):
     return a.group(1) + a.group(2).upper()
 
-@st.cache
+@st.cache_data
 def load_data(ticker):
     data = yf.download(ticker)
     data.reset_index(inplace=True)
@@ -93,6 +98,14 @@ with st.container():
             st.metric(label="% Change", value=f"{round(percent_change, 2)}")
 st.write("")
 st.markdown("## Model Training")
+path = "model"
+if st.button("Delete all existing model"):
+    # for file_name in os.listdir(f"{path}/{selected_stock}"):
+    #     # os.remove(f"{path}/{selected_stock}/{file_name}")
+    #     st.write(file_name)
+
+    shutil.rmtree(f"{path}/{selected_stock}", ignore_errors=True)
+
 st.markdown("##### Data Preparation")
 col_pre = st.columns(3)
 with col_pre[0]:
@@ -164,6 +177,7 @@ def create_model_checkpoint(save_path):
                                               verbose=1,
                                               save_best_only=True)
 
+@st.cache_resource
 def dense_model(structure, data, model_name, epoch, batch_size, save_path):
     tf.random.set_seed(42)
     np.random.seed(42)
@@ -183,9 +197,11 @@ def dense_model(structure, data, model_name, epoch, batch_size, save_path):
             x = tf.keras.layers.Dense(structure[i], activation="relu")(x)
 
     output = tf.keras.layers.Dense(y_train.shape[1])(x)
+    # model = tf.keras.Model(inputs=input,
+    #                        outputs=output,
+    #                        name=model_name)
     model = tf.keras.Model(inputs=input,
-                           outputs=output,
-                           name=model_name)
+                           outputs=output)
 
     model.compile(loss="mae",
                   optimizer=tf.keras.optimizers.Adam(),
@@ -198,56 +214,138 @@ def dense_model(structure, data, model_name, epoch, batch_size, save_path):
                         validation_data=(X_test, y_test),
                         callbacks=[create_model_checkpoint(save_path=save_path)])
 
-    plt.figure(figsize=(10,7))
-    epoch_plot = np.arange(1, epoch+1)
-    loss = np.array(history.history["loss"])
-    val_loss = np.array(history.history["val_loss"])
-    plt.plot(epoch_plot, loss, label="Traing")
-    plt.plot(epoch_plot, val_loss, label="Loss")
-    plt.ylabel("MAE", fontsize=14)
-    plt.xlabel("Epoch", fontsize=14)
-    plt.legend(fontsize=14)
-    plt.grid(True);
+    train_loss = history.history["loss"]
+    val_loss = history.history["val_loss"]
+
+    # plt.figure(figsize=(10,7))
+    # epoch_plot = np.arange(1, epoch+1)
+    # loss = np.array(history.history["loss"])
+    # val_loss = np.array(history.history["val_loss"])
+    # plt.plot(epoch_plot, loss, label="Traing")
+    # plt.plot(epoch_plot, val_loss, label="Loss")
+    # plt.ylabel("MAE", fontsize=14)
+    # plt.xlabel("Epoch", fontsize=14)
+    # plt.legend(fontsize=14)
+    # plt.grid(True);
     
     model = tf.keras.models.load_model(save_path)
 
     preds_train = model.predict(X_train)
     preds_test = model.predict(X_test)
 
-    mse_train = mse(model, y_train, preds_train)
-    mse_test = mse(model, y_test, preds_test)
+    # mse_train = mse(model, y_train, preds_train)
+    # mse_test = mse(model, y_test, preds_test)
 
-    mae_train = mae(model, y_train, preds_train)
-    mae_test = mae(model, y_test, preds_test)
+    # mae_train = mae(model, y_train, preds_train)
+    # mae_test = mae(model, y_test, preds_test)
 
-    print(f"MSE_train: {mse_train}")
-    print(f"MSE_test: {mse_test}")
-    print(f"MAE_train: {mae_train}")
-    print(f"MAE_test: {mae_test}")
+    # print(f"MSE_train: {mse_train}")
+    # print(f"MSE_test: {mse_test}")
+    # print(f"MAE_train: {mae_train}")
+    # print(f"MAE_test: {mae_test}")
 
-    MSE = {"train": mse_train,
-           "test": mse_test}
+    # MSE = {"train": mse_train,
+    #        "test": mse_test}
 
-    MAE = {"train": mae_train,
-           "test": mae_test}
+    # MAE = {"train": mae_train,
+    #        "test": mae_test}
 
-    plt.figure(figsize=(10,7))
-    plt.plot(y_train[:,0], label="Training")
-    plt.plot(preds_train[:,0], label="Prediction")
-    plt.ylabel("Stock Price", fontsize=14)
-    plt.title("Training")
-    plt.legend(fontsize=14)
-    plt.grid(True);
+    # plt.figure(figsize=(10,7))
+    # plt.plot(y_train[:,0], label="Training")
+    # plt.plot(preds_train[:,0], label="Prediction")
+    # plt.ylabel("Stock Price", fontsize=14)
+    # plt.title("Training")
+    # plt.legend(fontsize=14)
+    # plt.grid(True);
 
-    plt.figure(figsize=(10,7))
-    plt.plot(y_test[:,0], label="Test")
-    plt.plot(preds_test[:,0], label="Prediction")
-    plt.ylabel("Stock Price", fontsize=14)
-    plt.title("Test")
-    plt.legend(fontsize=14)
-    plt.grid(True);
+    # plt.figure(figsize=(10,7))
+    # plt.plot(y_test[:,0], label="Test")
+    # plt.plot(preds_test[:,0], label="Prediction")
+    # plt.ylabel("Stock Price", fontsize=14)
+    # plt.title("Test")
+    # plt.legend(fontsize=14)
+    # plt.grid(True);
   
     # return model, MAE, MSE
+    return train_loss, val_loss
 
-SAVE_PATH = f"model_experiments/model"
-dense_model(structure=structure, data=data_train_test, model_name=model_name, epoch=EPOCH, batch_size=BATCH_SIZE, save_path=SAVE_PATH)
+if st.button("Train Model"):
+    now = datetime.now(tz=ZoneInfo("Asia/Bangkok"))
+    dt_string = now.strftime("%d%m%Y_%H%M")
+
+    if os.path.isdir(f"model/{selected_stock}") != True:
+        os.mkdir(f"{path}/{selected_stock}")
+
+    if os.path.isfile(f"model/{selected_stock}/information.pkl"):
+        inform = pickle.load(open(f"model/{selected_stock}/information.pkl", "rb"))
+        st.write("Have")
+        st.write(inform)
+    else:
+        inform = {}
+
+    SAVE_PATH = f"{path}/{selected_stock}/{dt_string}"
+
+    inform[dt_string] = {}
+    inform[dt_string]["model"] = selected_model
+    inform[dt_string]["structure"] = structure_string
+    inform[dt_string]["epoch"] = EPOCH
+    inform[dt_string]["batch_size"] = BATCH_SIZE
+    inform[dt_string]["window"] = WINDOWS
+    inform[dt_string]["horizon"] = HORIZONS
+    inform[dt_string]["test_size"] = test_split
+
+    if selected_model == "Neural Network":
+        st.write("NN")
+        train_loss, val_loss = dense_model(structure=structure, data=data_train_test, model_name=model_name, epoch=EPOCH, batch_size=BATCH_SIZE, save_path=SAVE_PATH)
+    
+    elif selected_model == "LSTM":
+        st.write("LSTM")
+
+    inform[dt_string]["train_loss"] = train_loss
+    inform[dt_string]["val_loss"] = val_loss
+    pickle.dump(inform, open(f"model/{selected_stock}/information.pkl", "wb"))
+
+st.write("")
+st.markdown("## Model Evaluation")
+
+if os.path.isfile(f"{path}/{selected_stock}/information.pkl"):
+    informs = pickle.load(open(f"{path}/{selected_stock}/information.pkl", "rb"))
+    date = []
+    time = []
+    model_type = []
+    structure = []
+    epoch = []
+    batch = []
+    window = []
+    horizon = []
+    test = []
+
+    for dt, detail in informs.items():
+        dt_split = dt.split("_")
+        d = dt_split[0]
+        t = dt_split[1]
+        date.append(d)
+        time.append(t)
+
+        model_type.append(detail["model"])
+        structure.append(detail["structure"])
+        epoch.append(detail["epoch"])
+        batch.append(detail["batch_size"])
+        window.append(detail["window"])
+        horizon.append(detail["horizon"])
+        test.append(detail["test_size"])
+
+    dict_compare = {"Model": np.arange(1,len(informs.keys())+1),
+                    "Date": date,
+                    "Time": time,
+                    "Model Type": model_type,
+                    "Model Structure": structure,
+                    "Epoch": epoch,
+                    "Batch Size": batch,
+                    "Window Size": window,
+                    "Horizon": horizon,
+                    "Test Size": test}
+
+    df_compare = pd.DataFrame(dict_compare)
+
+    st.write(df_compare)
