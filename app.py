@@ -178,6 +178,14 @@ def create_model_checkpoint(save_path):
                                               verbose=1,
                                               save_best_only=True)
 
+def mse(model, y, preds):
+    mse = tf.metrics.mean_squared_error(y, preds)
+    return np.mean(mse)
+
+def mae(model, y, preds):
+    mae = tf.metrics.mean_absolute_error(y, preds)
+    return np.mean(mae)
+
 @st.cache_resource
 def dense_model(structure, data, model_name, epoch, batch_size, save_path):
     tf.random.set_seed(42)
@@ -198,9 +206,7 @@ def dense_model(structure, data, model_name, epoch, batch_size, save_path):
             x = tf.keras.layers.Dense(structure[i], activation="relu")(x)
 
     output = tf.keras.layers.Dense(y_train.shape[1])(x)
-    # model = tf.keras.Model(inputs=input,
-    #                        outputs=output,
-    #                        name=model_name)
+    
     model = tf.keras.Model(inputs=input,
                            outputs=output)
 
@@ -217,58 +223,25 @@ def dense_model(structure, data, model_name, epoch, batch_size, save_path):
 
     train_loss = history.history["loss"]
     val_loss = history.history["val_loss"]
-
-    # plt.figure(figsize=(10,7))
-    # epoch_plot = np.arange(1, epoch+1)
-    # loss = np.array(history.history["loss"])
-    # val_loss = np.array(history.history["val_loss"])
-    # plt.plot(epoch_plot, loss, label="Traing")
-    # plt.plot(epoch_plot, val_loss, label="Loss")
-    # plt.ylabel("MAE", fontsize=14)
-    # plt.xlabel("Epoch", fontsize=14)
-    # plt.legend(fontsize=14)
-    # plt.grid(True);
     
     model = tf.keras.models.load_model(save_path)
 
     preds_train = model.predict(X_train)
     preds_test = model.predict(X_test)
 
-    # mse_train = mse(model, y_train, preds_train)
-    # mse_test = mse(model, y_test, preds_test)
+    mse_train = mse(model, y_train, preds_train)
+    mse_test = mse(model, y_test, preds_test)
 
-    # mae_train = mae(model, y_train, preds_train)
-    # mae_test = mae(model, y_test, preds_test)
+    mae_train = mae(model, y_train, preds_train)
+    mae_test = mae(model, y_test, preds_test)
 
-    # print(f"MSE_train: {mse_train}")
-    # print(f"MSE_test: {mse_test}")
-    # print(f"MAE_train: {mae_train}")
-    # print(f"MAE_test: {mae_test}")
+    MSE = {"train": mse_train,
+           "test": mse_test}
 
-    # MSE = {"train": mse_train,
-    #        "test": mse_test}
-
-    # MAE = {"train": mae_train,
-    #        "test": mae_test}
-
-    # plt.figure(figsize=(10,7))
-    # plt.plot(y_train[:,0], label="Training")
-    # plt.plot(preds_train[:,0], label="Prediction")
-    # plt.ylabel("Stock Price", fontsize=14)
-    # plt.title("Training")
-    # plt.legend(fontsize=14)
-    # plt.grid(True);
-
-    # plt.figure(figsize=(10,7))
-    # plt.plot(y_test[:,0], label="Test")
-    # plt.plot(preds_test[:,0], label="Prediction")
-    # plt.ylabel("Stock Price", fontsize=14)
-    # plt.title("Test")
-    # plt.legend(fontsize=14)
-    # plt.grid(True);
+    MAE = {"train": mae_train,
+           "test": mae_test}
   
-    # return model, MAE, MSE
-    return train_loss, val_loss
+    return train_loss, val_loss, MSE, MAE 
 
 if st.button("Train Model"):
     now = datetime.now(tz=ZoneInfo("Asia/Bangkok"))
@@ -295,13 +268,15 @@ if st.button("Train Model"):
 
     if selected_model == "Neural Network":
         st.write("NN")
-        train_loss, val_loss = dense_model(structure=structure, data=data_train_test, model_name=model_name, epoch=EPOCH, batch_size=BATCH_SIZE, save_path=SAVE_PATH)
+        train_loss, val_loss, MSE, MAE = dense_model(structure=structure, data=data_train_test, model_name=model_name, epoch=EPOCH, batch_size=BATCH_SIZE, save_path=SAVE_PATH)
     
     elif selected_model == "LSTM":
         st.write("LSTM")
 
     inform[dt_string]["train_loss"] = train_loss
     inform[dt_string]["val_loss"] = val_loss
+    inform[dt_string]["mse"] = MSE
+    inform[dt_string]["mae"] = MAE
     pickle.dump(inform, open(f"model/{selected_stock}/information.pkl", "wb"))
 
 st.write("")
@@ -318,6 +293,10 @@ if os.path.isfile(f"{path}/{selected_stock}/information.pkl"):
     window = []
     horizon = []
     test = []
+    mse_train = []
+    mse_test = []
+    mae_train = []
+    mae_test = []
 
     for dt, detail in informs.items():
         dt_split = dt.split("_")
@@ -334,6 +313,11 @@ if os.path.isfile(f"{path}/{selected_stock}/information.pkl"):
         horizon.append(detail["horizon"])
         test.append(detail["test_size"])
 
+        mse_train.append(detail["mse"]["train"])
+        mse_test.append(detail["mse"]["test"])
+        mae_train.append(detail["mae"]["train"])
+        mae_test.append(detail["mae"]["test"])
+
     dict_compare = {"Model": np.arange(1,len(informs.keys())+1),
                     "Date": date,
                     "Time": time,
@@ -347,11 +331,24 @@ if os.path.isfile(f"{path}/{selected_stock}/information.pkl"):
 
     df_compare = pd.DataFrame(dict_compare)
 
+    dict_error = {"Model": np.arange(1,len(informs.keys())+1),
+                "MAE on Training Set": mae_train,
+                "MAE on Validation Set": mae_test,
+                "MSE on Training Set": mse_train,
+                "MSE on Validation Set": mse_test}
+
+    df_error = pd.DataFrame(dict_error)
+
     displayed_model = st.multiselect("Select model to compare prediction performance",
                                     df_compare["Model"],
                                     df_compare["Model"])
     df_display = df_compare[df_compare["Model"].isin(displayed_model)]
+    st.markdown("#### Model Information")
     st.write(df_display)
+
+    df_error_display = df_error[df_error["Model"].isin(displayed_model)]
+    st.markdown("#### Mean Absolute Error (MAE) and Mean Squared Error (MSE)")
+    st.write(df_error_display)
 
     st.markdown("#### Learning Curves")
     col = st.columns([1,5])
@@ -379,5 +376,12 @@ if os.path.isfile(f"{path}/{selected_stock}/information.pkl"):
     ax.set_xlabel("Epoch", color="white")
     ax.legend()
     ax.grid(color="grey")
-    # ax.set_title("Learning Curves", color="white")
     st.pyplot(fig)
+
+st.write("")
+st.markdown("## Forecasting")
+select_forecasting_model = st.selectbox("Select a model for stock price forecasting",
+                                        [f"Model {i}" for i in np.arange(1,len(informs.keys())+1)])
+forecasting_model_filename = f"{(df_compare['Date'][df_compare['Model'] == int(select_forecasting_model[-1])]).iloc[0]}_{(df_compare['Time'][df_compare['Model'] == int(select_forecasting_model[-1])]).iloc[0]}"
+forecasting_model = tf.keras.models.load_model(f"{path}/{selected_stock}/{forecasting_model_filename}")
+st.write(forecasting_model_filename)
